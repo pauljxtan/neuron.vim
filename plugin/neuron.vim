@@ -11,9 +11,17 @@ if exists("g:_neuron_loaded")
 endif
 let g:_neuron_loaded = 1
 
+let g:neuron_dir = get(g:, 'neuron_dir', fnamemodify(expand("%:p"), ":h")."/")
+
+" fallback to using getcwd if the above gives us a relative path
+if g:neuron_dir == './'
+	let g:neuron_dir = getcwd() . "/"
+endif
+
 let g:neuron_backlinks_size = get(g:, 'neuron_backlinks_size', 40)
 let g:neuron_backlinks_vsplit = get(g:, 'neuron_backlinks_vsplit', 1)
 let g:neuron_backlinks_vsplit_right = get(g:, 'neuron_backlinks_vsplit_right', 1)
+let g:neuron_debug_enable = get(g:, 'neuron_debug_enable', 0)
 let g:neuron_executable = get(g:, 'neuron_executable', system('which neuron | tr -d "\n"'))
 let g:neuron_fullscreen_search = get(g:, 'neuron_fullscreen_search', 0)
 let g:neuron_fzf_options = get(g:, 'neuron_fzf_options', ['-d',':','--with-nth','2'])
@@ -21,6 +29,7 @@ let g:neuron_inline_backlinks = get(g:, 'neuron_inline_backlinks', 1)
 let g:neuron_no_mappings = get(g:, 'neuron_no_mappings', 0)
 let g:neuron_tags_name = get(g:, 'neuron_tags_name', 'tags')
 let g:neuron_tags_style = get(g:, 'neuron_tags_style', 'multiline')
+let g:neuron_tmp_filename = get(g:, 'neuron_tmp_filename', '/tmp/neuronzettelsbuffer')
 
 nm <silent> <Plug>EditZettelNew :<C-U>call neuron#edit_zettel_new()<cr>
 nm <silent> <Plug>EditZettelSearchContent :<C-U>call neuron#search_content(0)<cr>
@@ -60,6 +69,8 @@ if !exists("g:neuron_no_mappings") || ! g:neuron_no_mappings
 	nm gzt <Plug>TagsAddNew
 	nm gzT <Plug>TagsAddSelect
 	nm gzts <Plug>TagsZettelSearch
+	ino <expr> <c-x><c-u> neuron#insert_zettel_complete(0)
+	ino <expr> <c-x><c-y> neuron#insert_zettel_complete(1)
 end
 
 " refresh the cache now if we are in a zettelkasten dir

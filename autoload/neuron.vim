@@ -41,6 +41,44 @@ func! neuron#add_virtual_titles()
 	call nvim_buf_set_virtual_text(0, l:ns, 0, [[l:backtext, "DiffChange"]], {})
 endf
 
+func! neuron#insert_reducer_folgezettel(lines)
+	let l:results = []
+	for line in a:lines
+		let l:result = '[[[' . split(line, ":")[0] . ']]]'
+		call add(l:results, l:result)
+	endfor
+	return join(l:results, ',')
+endfunc
+
+func! neuron#insert_reducer(lines)
+	let l:results = []
+	for line in a:lines
+		let l:result = '[[' . split(line, ":")[0] . ']]'
+		call add(l:results, l:result)
+	endfor
+	return join(l:results, ',')
+endfunc
+
+func! neuron#insert_zettel_complete(as_folgezettel)
+	if !exists("g:_neuron_zettels_by_id")
+		echom "Waiting until cache is populated..."
+		let g:_neuron_queued_function = ['neuron#insert_zettel_select', [a:as_folgezettel]]
+		return
+	end
+
+	if a:as_folgezettel
+		let l:reducer_to_use = 'neuron#insert_reducer_folgezettel'
+	else
+		let l:reducer_to_use = 'neuron#insert_reducer'
+	endif
+
+	return call('fzf#vim#complete', [fzf#wrap({
+		\ 'options': util#get_fzf_options('Select zettel: '),
+		\ 'source': g:_neuron_zettels_search_list,
+		\ 'reducer': function(l:reducer_to_use)
+	\ }, g:neuron_fullscreen_search)])
+endfunc
+
 func! neuron#insert_zettel_select(as_folgezettel)
 	if !exists("g:_neuron_zettels_by_id")
 		echo "Waiting until cache is populated..."
@@ -66,7 +104,7 @@ func! neuron#search_content(use_cursor)
 	if a:use_cursor
 		let l:query = expand("<cword>")
 	endif
-	call fzf#vim#ag(l:query, g:neuron_fullscreen_search)
+	call fzf#vim#ag(l:query, fzf#vim#with_preview({'dir': g:neuron_dir, 'options': '--exact'}), g:neuron_fullscreen_search)
 endf
 
 func! neuron#edit_zettel_select()
@@ -142,7 +180,9 @@ func! neuron#insert_zettel_last(as_folgezettel)
 endf
 
 func! neuron#edit_zettel_new()
-	w
+	if bufname('%') != ''
+		w
+	endif
 	let l:zettel_path = util#new_zettel_path('')
 	exec 'edit '.l:zettel_path
 	call util#add_empty_zettel_body('')
@@ -226,7 +266,7 @@ func! neuron#refresh_cache(add_titles)
 		let l:jobopt = {
 			\ 'exit_cb': function('s:refresh_cache_callback_vim'),
 			\ 'out_io': 'file',
-			\ 'out_name': '/tmp/neuronzettelsbuffer',
+			\ 'out_name': g:neuron_tmp_filename,
 			\ 'err_io': 'out'
 		\ }
 		if has('patch-8.1.350')
@@ -242,8 +282,8 @@ endf
 
 " vim 8
 func! s:refresh_cache_callback_vim(channel, x)
-	let l:data = readfile("/tmp/neuronzettelsbuffer")
-	call job_start("rm /tmp/neuronzettelsbuffer")
+	let l:data = readfile(g:neuron_tmp_filename)
+	call job_start("rm " . g:neuron_tmp_filename)
 	call s:refresh_cache_callback(join(l:data))
 endf
 
@@ -253,6 +293,9 @@ func s:refresh_cache_callback_nvim(id, data, event)
 endf
 
 func! s:refresh_cache_callback(data)
+	if (g:neuron_debug_enable)
+		call writefile(split(a:data, "\n", 1), g:neuron_dir . 'query.json')
+	endif
 	let l:zettels = json_decode(a:data)["result"]
 
 	call sort(l:zettels, function('util#zettel_date_sorter'))
@@ -270,14 +313,16 @@ func! s:refresh_cache_callback(data)
 	endfor
 
 	for z in l:zettels
-		for l in z['zettelQueries']
-			if l[0] == 'ZettelQuery_ZettelByID'
-				let l:key = l[1][0]
-				if has_key(g:_neuron_backlinks, l:key)
-					call add(g:_neuron_backlinks[l[1][0]], z['zettelID'])
+		if !empty(z['zettelQueries'])
+			for l in z['zettelQueries']
+				if l[0][0] == 'ZettelQuery_ZettelById'
+					let l:key = l[0][1][0]
+					if has_key(g:_neuron_backlinks, l:key)
+						call add(g:_neuron_backlinks[l[0][1][0]], z['zettelID'])
+					endif
 				endif
-			endif
-		endfor
+			endfor
+		endif
 	endfor
 
 	if g:_neuron_cache_add_titles == 1
@@ -445,10 +490,9 @@ func! neuron#tags_parse()
 		let l:line = getline(l:i)
 		"match from start of line then any number of spaces,
 		"then a dash (-), then any number of spaces, then everything to the end of the line
-		echom getline(l:i)
 		let l:tag = matchlist(getline(l:i), '\v^\s*-\s*(.+)$')
 		if !empty(l:tag)
-			call add(l:all_tags, l:tag)
+			call add(l:all_tags, l:tag[1])
 		endif
 		let l:i += 1
 	endwhile
@@ -505,6 +549,7 @@ func! neuron#tags_update(tag)
 	"add tag to list of current tags
 	let l:tag = trim(a:tag)
 	let l:tags = neuron#tags_parse()
+
 	if len(l:tags) == 0
 		call add(l:tags, l:tag)
 	else
